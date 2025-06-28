@@ -1,0 +1,356 @@
+import openai
+import requests
+import json
+from typing import List, Dict, Any, Optional
+from utils.config import config
+from modules.object_detection import detector
+from modules.pdf_parser import parser
+from utils.helpers import extract_confidence
+
+class ViolationChecker:
+    """LLM-based violation assessment system."""
+    
+    def __init__(self):
+        # Initialize both OpenAI and HuggingFace clients
+        if config.OPENAI_API_KEY:
+            self.openai_client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
+        else:
+            self.openai_client = None
+            
+        self.model = config.MODEL_NAME
+        self.hf_model = config.HF_MODEL
+        self.hf_api_key = config.HF_API_KEY
+    
+    def hf_chat_completion(self, prompt: str, max_tokens: int = 512, temperature: float = 0.1) -> str:
+        """Call HuggingFace Inference API for text generation."""
+        url = f"https://api-inference.huggingface.co/models/{self.hf_model}"
+        headers = {
+            "Authorization": f"Bearer {self.hf_api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        # Format prompt for instruction-following models
+        # Different models use different formats, so we'll try a generic approach
+        formatted_prompt = f"""<|system|>
+You are an expert housing policy compliance officer. Your job is to assess whether detected objects in a residence hall room violate any housing policies. 
+
+You must:
+1. Carefully analyze each detected object against the provided policy rules
+2. Determine if there's a clear violation
+3. Provide a confidence level (0.0 to 1.0) for your assessment
+4. Recommend appropriate action
+5. Be conservative - if you're unsure, mark as potential violation for human review
+
+Respond in JSON format with the following structure:
+{{
+    "violation_found": boolean,
+    "message": "clear explanation of your assessment",
+    "confidence": float (0.0-1.0),
+    "recommended_action": "specific action to take",
+    "violating_objects": ["list of objects that violate policy"],
+    "matching_rules": ["list of specific rules that were violated"],
+    "severity": "low/medium/high"
+}}
+</s>
+<|user|>
+{prompt}
+</s>
+<|assistant|>"""
+        
+        payload = {
+            "inputs": formatted_prompt,
+            "parameters": {
+                "max_new_tokens": max_tokens,
+                "temperature": temperature,
+                "return_full_text": False,
+                "do_sample": True,
+                "top_p": 0.9
+            }
+        }
+        
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+            
+            # Extract generated text from response
+            if isinstance(result, list) and len(result) > 0:
+                if "generated_text" in result[0]:
+                    return result[0]["generated_text"]
+                elif "generated_text" in result:
+                    return result["generated_text"]
+            elif isinstance(result, dict):
+                if "generated_text" in result:
+                    return result["generated_text"]
+                elif "error" in result:
+                    raise RuntimeError(f"HuggingFace API error: {result['error']}")
+            
+            # Fallback: return the raw result
+            return str(result)
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error calling HuggingFace API: {e}")
+            raise
+    
+    def assess_violation(self, detected_objects: List[Dict[str, Any]], 
+                        policy_rules: List[Dict[str, Any]], 
+                        image_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Assess whether detected objects violate any policy rules.
+        
+        Args:
+            detected_objects: List of objects detected in the image
+            policy_rules: List of relevant policy rules from PDF
+            image_context: Additional context about the image
+            
+        Returns:
+            Violation assessment result
+        """
+        if not detected_objects:
+            return {
+                "violation_found": False,
+                "message": "No objects detected that require policy assessment.",
+                "confidence": 1.0,
+                "recommended_action": "No action required"
+            }
+        
+        if not policy_rules:
+            return {
+                "violation_found": False,
+                "message": "No policy rules available for assessment.",
+                "confidence": 0.0,
+                "recommended_action": "Upload policy document for assessment"
+            }
+        
+        # Prepare the assessment prompt
+        prompt = self._create_assessment_prompt(detected_objects, policy_rules, image_context)
+        
+        try:
+            # Try HuggingFace first, fallback to OpenAI if available
+            if self.hf_api_key:
+                content = self.hf_chat_completion(prompt)
+            elif self.openai_client:
+                response = self.openai_client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": """You are an expert housing policy compliance officer. Your job is to assess whether detected objects in a residence hall room violate any housing policies. 
+
+You must:
+1. Carefully analyze each detected object against the provided policy rules
+2. Determine if there's a clear violation
+3. Provide a confidence level (0.0 to 1.0) for your assessment
+4. Recommend appropriate action
+5. Be conservative - if you're unsure, mark as potential violation for human review
+
+Respond in JSON format with the following structure:
+{
+    "violation_found": boolean,
+    "message": "clear explanation of your assessment",
+    "confidence": float (0.0-1.0),
+    "recommended_action": "specific action to take",
+    "violating_objects": ["list of objects that violate policy"],
+    "matching_rules": ["list of specific rules that were violated"],
+    "severity": "low/medium/high"
+}"""
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    temperature=0.1,
+                    max_tokens=1000
+                )
+                content = response.choices[0].message.content
+            else:
+                raise RuntimeError("No LLM API configured")
+            
+            # Parse the response
+            try:
+                # Try to extract JSON from the response
+                # Look for JSON-like content in the response
+                import re
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group()
+                    result = json.loads(json_str)
+                else:
+                    # If no JSON found, try parsing the whole response
+                    result = json.loads(content)
+                return result
+            except json.JSONDecodeError:
+                # Fallback if JSON parsing fails
+                return self._parse_text_response(content)
+                
+        except Exception as e:
+            print(f"Error in violation assessment: {e}")
+            return {
+                "violation_found": False,
+                "message": f"Error during assessment: {str(e)}",
+                "confidence": 0.0,
+                "recommended_action": "Manual review required"
+            }
+    
+    def _create_assessment_prompt(self, detected_objects: List[Dict[str, Any]], 
+                                 policy_rules: List[Dict[str, Any]], 
+                                 image_context: Dict[str, Any] = None) -> str:
+        """Create a detailed prompt for violation assessment."""
+        
+        # Format detected objects
+        objects_text = "\n".join([
+            f"- {obj['object']} (confidence: {extract_confidence(obj['confidence']):.2%}, category: {obj['category']})"
+            for obj in detected_objects
+        ])
+        
+        # Format policy rules - escape any curly braces to avoid formatting conflicts
+        rules_text = "\n".join([
+            f"- {rule['rule_text'].replace('{', '{{').replace('}', '}}')}"
+            for rule in policy_rules
+        ])
+        
+        # Format image context
+        context_text = ""
+        if image_context:
+            context_text = f"\nImage Context: {image_context.get('room_type', 'unknown room type')}"
+        
+        prompt = f"""
+Please assess whether the following objects detected in a residence hall room violate any housing policies.
+
+DETECTED OBJECTS:
+{objects_text}
+
+POLICY RULES:
+{rules_text}
+{context_text}
+
+Please analyze each detected object against the policy rules and determine if there are any violations. Consider:
+1. Whether the object is explicitly prohibited
+2. Whether it poses a safety hazard
+3. Whether it violates appliance or equipment policies
+4. The context and severity of any violations
+
+Provide your assessment in the specified JSON format.
+"""
+        return prompt
+    
+    def _parse_text_response(self, text: str) -> Dict[str, Any]:
+        """Parse a text response when JSON parsing fails."""
+        # Simple parsing logic for fallback
+        violation_found = any(word in text.lower() for word in ["violation", "prohibited", "not allowed"])
+        confidence = 0.5  # Default confidence
+        
+        return {
+            "violation_found": violation_found,
+            "message": text,
+            "confidence": confidence,
+            "recommended_action": "Manual review recommended",
+            "severity": "medium"
+        }
+    
+    def get_violation_summary(self, assessment_result: Dict[str, Any]) -> str:
+        """Generate a human-readable summary of the violation assessment."""
+        if not assessment_result.get("violation_found", False):
+            return assessment_result.get("message", "No violations detected.")
+        
+        summary_parts = []
+        
+        # Add violation status
+        summary_parts.append("🚨 POLICY VIOLATION DETECTED")
+        
+        # Add violating objects
+        if "violating_objects" in assessment_result:
+            objects = assessment_result["violating_objects"]
+            if isinstance(objects, list) and objects:
+                summary_parts.append(f"Violating objects: {', '.join(objects)}")
+        
+        # Add matching rules
+        if "matching_rules" in assessment_result:
+            rules = assessment_result["matching_rules"]
+            if isinstance(rules, list) and rules:
+                summary_parts.append(f"Policy rules violated: {', '.join(rules[:2])}")  # Show first 2 rules
+        
+        # Add severity
+        severity = assessment_result.get("severity", "medium")
+        summary_parts.append(f"Severity: {severity.upper()}")
+        
+        # Add confidence
+        confidence = assessment_result.get("confidence", 0.0)
+        summary_parts.append(f"Confidence: {extract_confidence(confidence):.1%}")
+        
+        # Add recommended action
+        action = assessment_result.get("recommended_action", "Review required")
+        summary_parts.append(f"Recommended action: {action}")
+        
+        return "\n".join(summary_parts)
+    
+    def check_single_object(self, object_name: str, object_category: str, 
+                           confidence: float) -> Dict[str, Any]:
+        """Check a single object against policy rules."""
+        # Search for relevant rules
+        query = f"{object_name} {object_category}"
+        relevant_rules = parser.search_relevant_rules(query, n_results=3)
+        
+        # Create a mock detected object
+        detected_object = {
+            "object": object_name,
+            "category": object_category,
+            "confidence": confidence
+        }
+        
+        return self.assess_violation([detected_object], relevant_rules)
+    
+    def get_compliance_report(self, image_path: str, pdf_path: str) -> Dict[str, Any]:
+        """Generate a comprehensive compliance report for an image and policy document."""
+        try:
+            # Detect objects
+            detected_objects = detector.detect_objects(image_path)
+            detection_summary = detector.get_detection_summary(detected_objects)
+            
+            # Extract and index policy rules
+            policy_summary = parser.get_policy_summary(pdf_path)
+            parser.index_policy_rules(pdf_path, "uploaded_policy")
+            
+            # Search for relevant rules
+            relevant_rules = []
+            if detected_objects:
+                for obj in detected_objects:
+                    query = f"{obj['object']} {obj['category']}"
+                    rules = parser.search_relevant_rules(query, n_results=2)
+                    relevant_rules.extend(rules)
+            
+            # Remove duplicates
+            unique_rules = []
+            seen_texts = set()
+            for rule in relevant_rules:
+                if rule["rule_text"] not in seen_texts:
+                    seen_texts.add(rule["rule_text"])
+                    unique_rules.append(rule)
+            
+            # Assess violations
+            image_context = detector.analyze_image_context(image_path)
+            violation_assessment = self.assess_violation(detected_objects, unique_rules, image_context)
+            
+            return {
+                "image_analysis": {
+                    "detected_objects": detected_objects,
+                    "detection_summary": detection_summary,
+                    "image_context": image_context
+                },
+                "policy_analysis": {
+                    "policy_summary": policy_summary,
+                    "relevant_rules": unique_rules
+                },
+                "violation_assessment": violation_assessment,
+                "compliance_status": "compliant" if not violation_assessment.get("violation_found", False) else "non_compliant"
+            }
+            
+        except Exception as e:
+            return {
+                "error": str(e),
+                "compliance_status": "error"
+            }
+
+# Global checker instance
+checker = ViolationChecker() 
