@@ -107,6 +107,11 @@ Respond in JSON format with the following structure:
                 "recommended_action": "No action required"
             }
         
+        # First, check for hardcoded violations (fallback system)
+        hardcoded_violations = self._check_hardcoded_violations(detected_objects)
+        if hardcoded_violations["violation_found"]:
+            return hardcoded_violations
+        
         if not policy_rules:
             return {
                 "violation_found": False,
@@ -150,6 +155,78 @@ Respond in JSON format with the following structure:
                 "confidence": 0.0,
                 "recommended_action": "Manual review required"
             }
+    
+    def _check_hardcoded_violations(self, detected_objects: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Check for common violations using hardcoded rules as a fallback."""
+        
+        # Define common violations
+        fire_hazards = {
+            "candle", "candles", "lighter", "lighters", "matches", "match", 
+            "incense", "incense stick", "burner", "burners", "torch", "torches",
+            "firework", "fireworks", "sparkler", "sparklers"
+        }
+        
+        prohibited_appliances = {
+            "microwave", "toaster", "toaster oven", "hot plate", "hotplate", 
+            "electric kettle", "kettle", "coffee maker", "coffeemaker",
+            "rice cooker", "slow cooker", "crock pot", "crockpot",
+            "air fryer", "airfryer", "grill", "grills", "panini press"
+        }
+        
+        alcohol_items = {
+            "beer", "wine", "liquor", "alcohol", "bottle", "bottles",
+            "can", "cans", "drink", "drinks", "beverage", "beverages"
+        }
+        
+        smoking_items = {
+            "cigarette", "cigarettes", "cigar", "cigars", "pipe", "pipes",
+            "vape", "vaping", "e-cigarette", "ecig", "hookah", "hookahs"
+        }
+        
+        violating_objects = []
+        matching_rules = []
+        
+        for obj in detected_objects:
+            object_name = obj.get('object', '').lower()
+            object_category = obj.get('category', '').lower()
+            
+            # Check fire hazards
+            if object_name in fire_hazards or any(hazard in object_name for hazard in fire_hazards):
+                violating_objects.append(obj['object'])
+                matching_rules.append("Fire safety policy - open flames and candles are prohibited")
+            
+            # Check prohibited appliances
+            elif object_name in prohibited_appliances or any(appliance in object_name for appliance in prohibited_appliances):
+                violating_objects.append(obj['object'])
+                matching_rules.append("Appliance policy - cooking appliances are not allowed in residence halls")
+            
+            # Check alcohol
+            elif object_name in alcohol_items or any(alcohol in object_name for alcohol in alcohol_items):
+                violating_objects.append(obj['object'])
+                matching_rules.append("Alcohol policy - alcoholic beverages are not permitted")
+            
+            # Check smoking items
+            elif object_name in smoking_items or any(smoking in object_name for smoking in smoking_items):
+                violating_objects.append(obj['object'])
+                matching_rules.append("Smoking policy - tobacco and vaping products are prohibited")
+        
+        if violating_objects:
+            return {
+                "violation_found": True,
+                "message": f"Policy violation detected: {', '.join(violating_objects)} are not allowed in residence halls.",
+                "confidence": 0.95,
+                "recommended_action": "Immediate removal of violating items required",
+                "violating_objects": violating_objects,
+                "matching_rules": list(set(matching_rules)),  # Remove duplicates
+                "severity": "high"
+            }
+        
+        return {
+            "violation_found": False,
+            "message": "No hardcoded violations detected.",
+            "confidence": 0.8,
+            "recommended_action": "Continue with policy assessment"
+        }
     
     def _create_assessment_prompt(self, detected_objects: List[Dict[str, Any]], 
                                  policy_rules: List[Dict[str, Any]], 
