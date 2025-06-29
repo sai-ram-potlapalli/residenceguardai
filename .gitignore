@@ -186,6 +186,7 @@ models/
 
 # Streamlit cache
 .streamlit/
+.streamlit/secrets.toml
 
 # Backup files
 *.bak

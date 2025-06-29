@@ -4,18 +4,31 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+def get_secret(key: str, default: str = '') -> str:
+    """Get a secret from Streamlit secrets or environment variables."""
+    try:
+        import streamlit as st
+        # Try to get from Streamlit secrets first
+        if hasattr(st, 'secrets') and st.secrets:
+            return st.secrets.get(key, default)
+    except:
+        pass
+    
+    # Fallback to environment variables
+    return os.getenv(key, default)
+
 class Config:
     """Configuration management for the violation detection system."""
     
     # HuggingFace API Configuration
-    HUGGINGFACE_API_TOKEN = os.getenv('HUGGINGFACE_API_TOKEN', '')
+    HUGGINGFACE_API_TOKEN = get_secret('HUGGINGFACE_API_TOKEN', '')
     
     # Email Configuration
-    EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-    EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
-    EMAIL_USER = os.getenv('EMAIL_USER', '')
-    EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', '')
-    RESIDENCE_LIFE_EMAIL = os.getenv('RESIDENCE_LIFE_EMAIL', 'residencelife@university.edu')
+    EMAIL_HOST = get_secret('EMAIL_SMTP_SERVER', 'smtp.gmail.com')
+    EMAIL_PORT = int(get_secret('EMAIL_SMTP_PORT', '587'))
+    EMAIL_USER = get_secret('EMAIL_SENDER_EMAIL', '')
+    EMAIL_PASSWORD = get_secret('EMAIL_SENDER_PASSWORD', '')
+    RESIDENCE_LIFE_EMAIL = get_secret('EMAIL_RESIDENCE_LIFE_EMAIL', 'residencelife@university.edu')
     
     # Model Configuration
     CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"

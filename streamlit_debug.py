@@ -50,26 +50,52 @@ def main():
                 st.error(f"❌ {var_name}: NOT SET")
     
     with col2:
-        st.subheader("Config Object Values")
+        st.subheader("Streamlit Secrets")
         
-        # Check config object values
-        config_values = {
-            "HUGGINGFACE_API_TOKEN": config.HUGGINGFACE_API_TOKEN,
-            "EMAIL_HOST": config.EMAIL_HOST,
-            "EMAIL_PORT": config.EMAIL_PORT,
-            "EMAIL_USER": config.EMAIL_USER,
-            "EMAIL_PASSWORD": config.EMAIL_PASSWORD,
-            "RESIDENCE_LIFE_EMAIL": config.RESIDENCE_LIFE_EMAIL,
-        }
-        
-        for var_name, var_value in config_values.items():
-            if var_value:
-                if 'PASSWORD' in var_name:
-                    st.success(f"✅ {var_name}: {'*' * len(var_value)}")
+        # Check Streamlit secrets
+        try:
+            secrets_vars = {
+                "HUGGINGFACE_API_TOKEN": st.secrets.get('HUGGINGFACE_API_TOKEN', None),
+                "EMAIL_SMTP_SERVER": st.secrets.get('EMAIL_SMTP_SERVER', None),
+                "EMAIL_SMTP_PORT": st.secrets.get('EMAIL_SMTP_PORT', None),
+                "EMAIL_SENDER_EMAIL": st.secrets.get('EMAIL_SENDER_EMAIL', None),
+                "EMAIL_SENDER_PASSWORD": st.secrets.get('EMAIL_SENDER_PASSWORD', None),
+                "EMAIL_RESIDENCE_LIFE_EMAIL": st.secrets.get('EMAIL_RESIDENCE_LIFE_EMAIL', None),
+            }
+            
+            for var_name, var_value in secrets_vars.items():
+                if var_value:
+                    if 'PASSWORD' in var_name:
+                        st.success(f"✅ {var_name}: {'*' * len(var_value)}")
+                    else:
+                        st.success(f"✅ {var_name}: {var_value}")
                 else:
-                    st.success(f"✅ {var_name}: {var_value}")
+                    st.error(f"❌ {var_name}: NOT SET")
+        except Exception as e:
+            st.error(f"❌ Error accessing Streamlit secrets: {e}")
+            st.info("💡 This is normal if running locally without Streamlit Cloud")
+    
+    # Config Object Values
+    st.subheader("Config Object Values (Final)")
+    
+    # Check config object values
+    config_values = {
+        "HUGGINGFACE_API_TOKEN": config.HUGGINGFACE_API_TOKEN,
+        "EMAIL_HOST": config.EMAIL_HOST,
+        "EMAIL_PORT": config.EMAIL_PORT,
+        "EMAIL_USER": config.EMAIL_USER,
+        "EMAIL_PASSWORD": config.EMAIL_PASSWORD,
+        "RESIDENCE_LIFE_EMAIL": config.RESIDENCE_LIFE_EMAIL,
+    }
+    
+    for var_name, var_value in config_values.items():
+        if var_value:
+            if 'PASSWORD' in var_name:
+                st.success(f"✅ {var_name}: {'*' * len(var_value)}")
             else:
-                st.error(f"❌ {var_name}: NOT SET")
+                st.success(f"✅ {var_name}: {var_value}")
+        else:
+            st.error(f"❌ {var_name}: NOT SET")
     
     # Email Sender Check
     st.header("📧 Email Sender Check")
