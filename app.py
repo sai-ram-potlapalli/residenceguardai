@@ -106,11 +106,29 @@ def main():
         else:
             with st.spinner("🔍 Analyzing image and checking for violations..."):
                 try:
-                    # Perform analysis
-                    results = checker.get_compliance_report(
-                        st.session_state.uploaded_image,
-                        st.session_state.uploaded_pdf
-                    )
+                    # Save uploaded files to disk
+                    import tempfile
+                    import os
+                    
+                    # Save image to temporary file
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_img:
+                        temp_img.write(st.session_state.uploaded_image.getbuffer())
+                        image_path = temp_img.name
+                    
+                    # Save PDF to temporary file
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_pdf:
+                        temp_pdf.write(st.session_state.uploaded_pdf.getbuffer())
+                        pdf_path = temp_pdf.name
+                    
+                    # Perform analysis with file paths
+                    results = checker.get_compliance_report(image_path, pdf_path)
+                    
+                    # Clean up temporary files
+                    try:
+                        os.unlink(image_path)
+                        os.unlink(pdf_path)
+                    except:
+                        pass  # Ignore cleanup errors
                     
                     st.session_state.analysis_results = results
                     st.success("✅ Analysis completed!")
@@ -312,9 +330,17 @@ def main():
             if st.button("📤 Send Report to Residence Life", type="primary"):
                 with st.spinner("📤 Generating and sending report..."):
                     try:
+                        # Save uploaded image to temporary file for report generation
+                        import tempfile
+                        import os
+                        
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_img:
+                            temp_img.write(st.session_state.uploaded_image.getbuffer())
+                            image_path_for_report = temp_img.name
+                        
                         # Generate report
                         report_path = generator.generate_incident_report(
-                            image_path=st.session_state.uploaded_image,
+                            image_path=image_path_for_report,
                             detected_objects=results.get('image_analysis', {}).get('detected_objects', []),
                             violation_assessment=results.get('violation_assessment', {}),
                             policy_rules=results.get('policy_analysis', {}).get('relevant_rules', []),
@@ -323,6 +349,12 @@ def main():
                             room_number=room_number or "Room",
                             building_name=building_name or "Building"
                         )
+                        
+                        # Clean up temporary image file
+                        try:
+                            os.unlink(image_path_for_report)
+                        except:
+                            pass
                         
                         st.session_state.report_path = report_path
                         
