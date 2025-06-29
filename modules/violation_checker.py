@@ -1,7 +1,6 @@
-import openai
-import requests
 import json
-from typing import List, Dict, Any, Optional
+import requests
+from typing import List, Dict, Any
 from utils.config import config
 from modules.object_detection import detector
 from modules.pdf_parser import parser
@@ -11,15 +10,9 @@ class ViolationChecker:
     """LLM-based violation assessment system."""
     
     def __init__(self):
-        # Initialize both OpenAI and HuggingFace clients
-        if config.OPENAI_API_KEY:
-            self.openai_client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
-        else:
-            self.openai_client = None
-            
-        self.model = config.MODEL_NAME
-        self.hf_model = config.HF_MODEL
-        self.hf_api_key = config.HF_API_KEY
+        # Initialize HuggingFace client only
+        self.hf_api_key = config.HUGGINGFACE_API_TOKEN
+        self.hf_model = config.LLM_MODEL_NAME
     
     def hf_chat_completion(self, prompt: str, max_tokens: int = 512, temperature: float = 0.1) -> str:
         """Call HuggingFace Inference API for text generation."""
@@ -126,46 +119,11 @@ Respond in JSON format with the following structure:
         prompt = self._create_assessment_prompt(detected_objects, policy_rules, image_context)
         
         try:
-            # Try HuggingFace first, fallback to OpenAI if available
+            # Use HuggingFace API
             if self.hf_api_key:
                 content = self.hf_chat_completion(prompt)
-            elif self.openai_client:
-                response = self.openai_client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": """You are an expert housing policy compliance officer. Your job is to assess whether detected objects in a residence hall room violate any housing policies. 
-
-You must:
-1. Carefully analyze each detected object against the provided policy rules
-2. Determine if there's a clear violation
-3. Provide a confidence level (0.0 to 1.0) for your assessment
-4. Recommend appropriate action
-5. Be conservative - if you're unsure, mark as potential violation for human review
-
-Respond in JSON format with the following structure:
-{
-    "violation_found": boolean,
-    "message": "clear explanation of your assessment",
-    "confidence": float (0.0-1.0),
-    "recommended_action": "specific action to take",
-    "violating_objects": ["list of objects that violate policy"],
-    "matching_rules": ["list of specific rules that were violated"],
-    "severity": "low/medium/high"
-}"""
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
-                    ],
-                    temperature=0.1,
-                    max_tokens=1000
-                )
-                content = response.choices[0].message.content
             else:
-                raise RuntimeError("No LLM API configured")
+                raise RuntimeError("No HuggingFace API key configured")
             
             # Parse the response
             try:
