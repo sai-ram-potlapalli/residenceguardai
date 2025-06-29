@@ -17,11 +17,12 @@ class EmailSender:
     """Handles email communication for violation reports."""
     
     def __init__(self):
-        self.smtp_server = os.getenv('EMAIL_SMTP_SERVER', 'smtp.gmail.com')
-        self.smtp_port = int(os.getenv('EMAIL_SMTP_PORT', '587'))
-        self.sender_email = os.getenv('EMAIL_SENDER_EMAIL', '')
-        self.sender_password = os.getenv('EMAIL_SENDER_PASSWORD', '')
-        self.residence_life_email = os.getenv('EMAIL_RESIDENCE_LIFE_EMAIL', 'reslife@university.edu')
+        # Use config object instead of environment variables directly
+        self.smtp_server = config.EMAIL_HOST
+        self.smtp_port = config.EMAIL_PORT
+        self.sender_email = config.EMAIL_USER
+        self.sender_password = config.EMAIL_PASSWORD
+        self.residence_life_email = config.RESIDENCE_LIFE_EMAIL
         
     def get_email_config(self) -> Dict[str, str]:
         """Get current email configuration settings."""
@@ -301,27 +302,27 @@ class EmailSender:
             room_number: Room number where incident occurred
             incident_date: Date of the incident
             incident_time: Time of the incident
-            student_name: Name of the student (if known)
+            student_name: Name of the student involved
             
         Returns:
             bool: True if email sent successfully, False otherwise
         """
         try:
-            print(f"🔍 DEBUG: send_incident_report called with:")
-            print(f"   Report path: {report_path}")
-            print(f"   Staff name: {staff_name}")
-            print(f"   Building: {building_name}")
-            print(f"   Room: {room_number}")
-            print(f"   Sender email: {self.sender_email}")
-            print(f"   Recipient email: {self.residence_life_email}")
+            # Validate email configuration
+            if not self.sender_email or not self.sender_password:
+                print(f"ERROR: Email configuration missing. Sender: {self.sender_email}, Password: {'SET' if self.sender_password else 'NOT SET'}")
+                return False
+            
+            # Validate report file exists
+            if not os.path.exists(report_path):
+                print(f"ERROR: Report file not found: {report_path}")
+                return False
             
             # Create email message
             msg = MIMEMultipart()
             msg['From'] = self.sender_email
             msg['To'] = self.residence_life_email
-            msg['Subject'] = f"Incident Report - {building_name} Room {room_number} - {datetime.now().strftime('%Y-%m-%d')}"
-            
-            print(f"🔍 DEBUG: Email subject: {msg['Subject']}")
+            msg['Subject'] = f"Incident Report - {building_name} Room {room_number}"
             
             # Generate email body
             email_body = self._generate_body(
@@ -335,40 +336,48 @@ class EmailSender:
             msg.attach(MIMEText(email_body, 'html'))
             
             # Attach PDF report
-            if os.path.exists(report_path):
-                print(f"🔍 DEBUG: Report file exists, attaching...")
-                with open(report_path, "rb") as attachment:
-                    part = MIMEBase('application', 'octet-stream')
-                    part.set_payload(attachment.read())
-                
-                encoders.encode_base64(part)
-                part.add_header(
-                    'Content-Disposition',
-                    f'attachment; filename= {os.path.basename(report_path)}'
-                )
-                msg.attach(part)
-            else:
-                print(f"❌ DEBUG: Report file does not exist: {report_path}")
+            with open(report_path, "rb") as attachment:
+                part = MIMEBase('application', 'octet-stream')
+                part.set_payload(attachment.read())
             
-            # Send email
-            print(f"🔍 DEBUG: Connecting to SMTP server...")
+            encoders.encode_base64(part)
+            part.add_header(
+                'Content-Disposition',
+                f'attachment; filename= {os.path.basename(report_path)}'
+            )
+            msg.attach(part)
+            
+            # Send email with detailed error handling
+            print(f"DEBUG: Attempting to send email via {self.smtp_server}:{self.smtp_port}")
+            print(f"DEBUG: From: {self.sender_email}")
+            print(f"DEBUG: To: {self.residence_life_email}")
+            
             server = smtplib.SMTP(self.smtp_server, self.smtp_port)
             server.starttls()
-            print(f"🔍 DEBUG: Logging in...")
+            
+            print("DEBUG: Starting SMTP login...")
             server.login(self.sender_email, self.sender_password)
-            print(f"🔍 DEBUG: Sending email...")
+            print("DEBUG: SMTP login successful")
+            
             text = msg.as_string()
             server.sendmail(self.sender_email, self.residence_life_email, text)
             server.quit()
             
-            print(f"✅ Email sent successfully to {self.residence_life_email}")
+            print("DEBUG: Email sent successfully")
             return True
             
+        except smtplib.SMTPAuthenticationError as e:
+            print(f"ERROR: SMTP Authentication failed: {e}")
+            print("This usually means the email or password is incorrect, or 2FA is enabled without an app password")
+            return False
+        except smtplib.SMTPException as e:
+            print(f"ERROR: SMTP error occurred: {e}")
+            return False
         except Exception as e:
-            print(f"❌ Error sending email: {e}")
-            print(f"❌ Error type: {type(e)}")
-            import traceback
-            print(f"❌ Full traceback: {traceback.format_exc()}")
+            print(f"ERROR: Unexpected error sending email: {e}")
+            print(f"SMTP Server: {self.smtp_server}:{self.smtp_port}")
+            print(f"Sender Email: {self.sender_email}")
+            print(f"Recipient Email: {self.residence_life_email}")
             return False
     
     def _generate_body(self, 
