@@ -284,6 +284,11 @@ def main():
         
         # Display violations
         violation_assessment = results.get('violation_assessment', {})
+        
+        # DEBUG: Show what's in the violation assessment
+        st.subheader("🔍 DEBUG: Violation Assessment Data")
+        st.json(violation_assessment)
+        
         if violation_assessment.get('violation_found'):
             st.subheader("🚨 Policy Violations")
             with st.expander("Violation Details"):
@@ -306,6 +311,13 @@ def main():
         
         # Display compliance status
         compliance_status = results.get('compliance_status', 'unknown')
+        
+        # DEBUG: Show compliance status
+        st.subheader("🔍 DEBUG: Compliance Status")
+        st.write(f"**Compliance Status:** {compliance_status}")
+        st.write(f"**Violation Found:** {violation_assessment.get('violation_found', 'NOT SET')}")
+        st.write(f"**Type of violation_found:** {type(violation_assessment.get('violation_found'))}")
+        
         if compliance_status == 'compliant':
             st.success("✅ Room is compliant with housing policies")
         elif compliance_status == 'non_compliant':
