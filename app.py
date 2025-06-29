@@ -199,6 +199,13 @@ def main():
                     st.session_state.analysis_results = results
                     st.success("✅ Analysis completed!")
                     
+                    # Debug: Show what was stored
+                    print("🔍 DEBUG: Analysis results stored in session state:")
+                    print(f"   Has violation_assessment: {'violation_assessment' in results}")
+                    if 'violation_assessment' in results:
+                        print(f"   violation_found: {results['violation_assessment'].get('violation_found')}")
+                        print(f"   Type: {type(results['violation_assessment'].get('violation_found'))}")
+                    
                 except Exception as e:
                     st.error(f"❌ Analysis failed: {str(e)}")
                     st.exception(e)
@@ -208,6 +215,13 @@ def main():
         st.header("📊 Analysis Results")
         
         results = st.session_state.analysis_results
+        
+        # Debug: Show what's being read from session state
+        print("🔍 DEBUG: Reading analysis results from session state:")
+        print(f"   Has violation_assessment: {'violation_assessment' in results}")
+        if 'violation_assessment' in results:
+            print(f"   violation_found: {results['violation_assessment'].get('violation_found')}")
+            print(f"   Type: {type(results['violation_assessment'].get('violation_found'))}")
         
         # Check for errors
         if "error" in results:
