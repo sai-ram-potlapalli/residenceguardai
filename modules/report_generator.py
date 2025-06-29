@@ -84,6 +84,9 @@ class ReportGenerator:
         Returns:
             Path to the generated PDF report
         """
+        # Ensure reports directory exists
+        os.makedirs(config.REPORTS_DIR, exist_ok=True)
+        
         # Generate unique filename for the report
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_filename = f"incident_report_{timestamp}.pdf"
