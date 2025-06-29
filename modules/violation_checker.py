@@ -199,6 +199,10 @@ Respond in JSON format with the following structure:
             "taser", "tasers", "pepper spray", "mace", "stun gun", "stungun"
         }
         
+        property_damage_items = {
+            "hole in wall", "graffiti", "damaged wall", "broken furniture", "damaged furniture", "broken window", "damaged door", "vandalism", "wall writing", "damaged property", "defaced property"
+        }
+        
         violating_objects = []
         matching_rules = []
         
@@ -239,6 +243,12 @@ Respond in JSON format with the following structure:
                 print(f"🚨 DEBUG: SMOKING ITEM DETECTED: '{object_name}' matches smoking rules!")
                 violating_objects.append(obj['object'])
                 matching_rules.append("Smoking policy - tobacco and vaping products are prohibited")
+            
+            # Check property damage
+            elif object_name in property_damage_items or any(damage in object_name for damage in property_damage_items):
+                print(f"🚨 DEBUG: PROPERTY DAMAGE DETECTED: '{object_name}' matches property damage rules!")
+                violating_objects.append(obj['object'])
+                matching_rules.append("Property damage policy - damage to residence hall property is prohibited")
             else:
                 print(f"✅ DEBUG: No violation detected for '{object_name}'")
         
