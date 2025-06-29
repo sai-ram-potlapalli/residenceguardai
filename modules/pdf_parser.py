@@ -3,37 +3,18 @@ import pdfplumber
 import re
 from typing import List, Dict, Any, Optional
 from utils.helpers import clean_text, chunk_text
-import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
-from utils.config import config
 
 class PDFParser:
     """PDF parser for extracting and indexing housing policy rules."""
     
     def __init__(self):
-        self.embedding_model = None
-        self.vector_db = None
+        self.policy_rules = []
         self._initialize_components()
     
     def _initialize_components(self):
-        """Initialize the embedding model and vector database."""
+        """Initialize the parser components."""
         try:
-            # Initialize sentence transformer for embeddings
-            self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-            
-            # Initialize ChromaDB
-            self.vector_db = chromadb.PersistentClient(
-                path=config.CHROMA_PERSIST_DIRECTORY,
-                settings=Settings(anonymized_telemetry=False)
-            )
-            
-            # Create or get collection
-            try:
-                self.collection = self.vector_db.get_collection("policy_rules")
-            except:
-                self.collection = self.vector_db.create_collection("policy_rules")
-                
+            print("PDF Parser initialized successfully")
         except Exception as e:
             print(f"Error initializing PDF parser components: {e}")
             raise
@@ -159,7 +140,7 @@ class PDFParser:
         return rules
     
     def index_policy_rules(self, pdf_path: str, pdf_name: str = "policy_document") -> bool:
-        """Index policy rules in the vector database."""
+        """Index policy rules in memory storage."""
         try:
             # Extract rules
             rules = self.extract_policy_rules(pdf_path)
@@ -167,28 +148,19 @@ class PDFParser:
                 print("No policy rules found in the PDF")
                 return False
             
-            # Prepare data for indexing
-            documents = []
-            metadatas = []
-            ids = []
-            
+            # Store rules in memory
             for i, rule in enumerate(rules):
                 rule_id = f"{pdf_name}_{i}"
-                documents.append(rule["rule_text"])
-                metadatas.append({
-                    "pdf_name": pdf_name,
-                    "chunk_index": rule["chunk_index"],
-                    "pattern": rule["pattern_matched"],
-                    "rule_type": self._categorize_rule(rule["rule_text"])
+                self.policy_rules.append({
+                    "id": rule_id,
+                    "rule_text": rule["rule_text"],
+                    "metadata": {
+                        "pdf_name": pdf_name,
+                        "chunk_index": rule["chunk_index"],
+                        "pattern": rule["pattern_matched"],
+                        "rule_type": self._categorize_rule(rule["rule_text"])
+                    }
                 })
-                ids.append(rule_id)
-            
-            # Add to vector database
-            self.collection.add(
-                documents=documents,
-                metadatas=metadatas,
-                ids=ids
-            )
             
             print(f"Indexed {len(rules)} policy rules from {pdf_name}")
             return True
@@ -198,27 +170,39 @@ class PDFParser:
             return False
     
     def search_relevant_rules(self, query: str, n_results: int = 5) -> List[Dict[str, Any]]:
-        """Search for policy rules relevant to a query."""
+        """Search for policy rules relevant to a query using simple text matching."""
         try:
-            results = self.collection.query(
-                query_texts=[query],
-                n_results=n_results
-            )
-            
+            query_lower = query.lower()
             relevant_rules = []
-            if results['documents']:
-                for i, doc in enumerate(results['documents'][0]):
+            
+            for rule in self.policy_rules:
+                rule_text_lower = rule["rule_text"].lower()
+                # Simple keyword matching
+                if any(word in rule_text_lower for word in query_lower.split()):
                     relevant_rules.append({
-                        "rule_text": doc,
-                        "metadata": results['metadatas'][0][i],
-                        "distance": results['distances'][0][i] if 'distances' in results else None
+                        "rule_text": rule["rule_text"],
+                        "metadata": rule["metadata"],
+                        "relevance_score": self._calculate_relevance(query_lower, rule_text_lower)
                     })
             
-            return relevant_rules
+            # Sort by relevance and return top results
+            relevant_rules.sort(key=lambda x: x["relevance_score"], reverse=True)
+            return relevant_rules[:n_results]
             
         except Exception as e:
             print(f"Error searching rules: {e}")
             return []
+    
+    def _calculate_relevance(self, query: str, rule_text: str) -> float:
+        """Calculate simple relevance score based on word overlap."""
+        query_words = set(query.split())
+        rule_words = set(rule_text.split())
+        
+        if not query_words:
+            return 0.0
+        
+        overlap = len(query_words.intersection(rule_words))
+        return overlap / len(query_words)
     
     def _categorize_rule(self, rule_text: str) -> str:
         """Categorize a policy rule based on its content."""
@@ -270,8 +254,7 @@ class PDFParser:
     def clear_database(self):
         """Clear all indexed policy rules."""
         try:
-            self.vector_db.delete_collection("policy_rules")
-            self.collection = self.vector_db.create_collection("policy_rules")
+            self.policy_rules = []
             print("Policy rules database cleared")
         except Exception as e:
             print(f"Error clearing database: {e}")
