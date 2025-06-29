@@ -99,6 +99,11 @@ Respond in JSON format with the following structure:
         Returns:
             Violation assessment result
         """
+        # Debug: Print what we're checking
+        print(f"🔍 DEBUG: Checking {len(detected_objects)} detected objects for violations")
+        for i, obj in enumerate(detected_objects):
+            print(f"   {i+1}. {obj.get('object', 'Unknown')} (confidence: {obj.get('confidence', 0):.3f}, category: {obj.get('category', 'Unknown')})")
+        
         if not detected_objects:
             return {
                 "violation_found": False,
@@ -108,8 +113,12 @@ Respond in JSON format with the following structure:
             }
         
         # First, check for hardcoded violations (fallback system)
+        print("🔍 DEBUG: Checking hardcoded violations...")
         hardcoded_violations = self._check_hardcoded_violations(detected_objects)
+        print(f"🔍 DEBUG: Hardcoded violation result: {hardcoded_violations['violation_found']}")
+        
         if hardcoded_violations["violation_found"]:
+            print("🚨 DEBUG: Hardcoded violation detected!")
             return hardcoded_violations
         
         if not policy_rules:
@@ -183,42 +192,67 @@ Respond in JSON format with the following structure:
             "vape", "vaping", "e-cigarette", "ecig", "hookah", "hookahs"
         }
         
+        weapons = {
+            "weapon", "weapons", "knife", "knives", "gun", "guns", "firearm", "firearms",
+            "sword", "swords", "dagger", "daggers", "blade", "blades", "machete", "machetes",
+            "axe", "axes", "bat", "bats", "club", "clubs", "brass knuckles", "knuckles",
+            "taser", "tasers", "pepper spray", "mace", "stun gun", "stungun"
+        }
+        
         violating_objects = []
         matching_rules = []
+        
+        print(f"🔍 DEBUG: Checking {len(detected_objects)} objects against hardcoded rules")
         
         for obj in detected_objects:
             object_name = obj.get('object', '').lower()
             object_category = obj.get('category', '').lower()
             
+            print(f"🔍 DEBUG: Checking object '{object_name}' (category: '{object_category}')")
+            
+            # Check weapons (highest priority)
+            if object_name in weapons or any(weapon in object_name for weapon in weapons):
+                print(f"🚨 DEBUG: WEAPON DETECTED: '{object_name}' matches weapon rules!")
+                violating_objects.append(obj['object'])
+                matching_rules.append("Weapon policy - weapons and dangerous items are strictly prohibited")
+            
             # Check fire hazards
-            if object_name in fire_hazards or any(hazard in object_name for hazard in fire_hazards):
+            elif object_name in fire_hazards or any(hazard in object_name for hazard in fire_hazards):
+                print(f"🚨 DEBUG: FIRE HAZARD DETECTED: '{object_name}' matches fire hazard rules!")
                 violating_objects.append(obj['object'])
                 matching_rules.append("Fire safety policy - open flames and candles are prohibited")
             
             # Check prohibited appliances
             elif object_name in prohibited_appliances or any(appliance in object_name for appliance in prohibited_appliances):
+                print(f"🚨 DEBUG: PROHIBITED APPLIANCE DETECTED: '{object_name}' matches appliance rules!")
                 violating_objects.append(obj['object'])
                 matching_rules.append("Appliance policy - cooking appliances are not allowed in residence halls")
             
             # Check alcohol
             elif object_name in alcohol_items or any(alcohol in object_name for alcohol in alcohol_items):
+                print(f"🚨 DEBUG: ALCOHOL DETECTED: '{object_name}' matches alcohol rules!")
                 violating_objects.append(obj['object'])
                 matching_rules.append("Alcohol policy - alcoholic beverages are not permitted")
             
             # Check smoking items
             elif object_name in smoking_items or any(smoking in object_name for smoking in smoking_items):
+                print(f"🚨 DEBUG: SMOKING ITEM DETECTED: '{object_name}' matches smoking rules!")
                 violating_objects.append(obj['object'])
                 matching_rules.append("Smoking policy - tobacco and vaping products are prohibited")
+            else:
+                print(f"✅ DEBUG: No violation detected for '{object_name}'")
+        
+        print(f"🔍 DEBUG: Found {len(violating_objects)} violating objects: {violating_objects}")
         
         if violating_objects:
             return {
                 "violation_found": True,
-                "message": f"Policy violation detected: {', '.join(violating_objects)} are not allowed in residence halls.",
-                "confidence": 0.95,
-                "recommended_action": "Immediate removal of violating items required",
+                "message": f"🚨 CRITICAL POLICY VIOLATION DETECTED: {', '.join(violating_objects)} are strictly prohibited in residence halls.",
+                "confidence": 0.99,
+                "recommended_action": "IMMEDIATE REMOVAL REQUIRED - Contact campus security immediately",
                 "violating_objects": violating_objects,
                 "matching_rules": list(set(matching_rules)),  # Remove duplicates
-                "severity": "high"
+                "severity": "critical"
             }
         
         return {

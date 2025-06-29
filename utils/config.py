@@ -45,6 +45,11 @@ class Config:
         os.makedirs(cls.CHROMA_DB_PATH, exist_ok=True)
         
         return True
+    
+    @classmethod
+    def get_report_path(cls, filename: str) -> str:
+        """Get the full path for a report file."""
+        return os.path.join(cls.REPORTS_DIR, filename)
 
 # Global config instance
 config = Config() 
