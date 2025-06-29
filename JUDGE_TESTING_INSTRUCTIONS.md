@@ -11,7 +11,7 @@ Welcome, Judges! This folder contains everything you need to test the ResidenceG
 ## 🚦 How to Test
 
 1. **Open the ResidenceGuard AI web app**
-   - (URL or local instructions as provided by the team)
+   - streamlit URL
 
 2. **Upload the Policy PDF**
    - Click 'Upload Policy PDF' and select `AUM-Housing-Community-Standards.pdf` from this folder.
