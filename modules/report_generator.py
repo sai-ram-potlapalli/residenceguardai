@@ -84,57 +84,71 @@ class ReportGenerator:
         Returns:
             Path to the generated PDF report
         """
-        # Ensure reports directory exists
-        os.makedirs(config.REPORTS_DIR, exist_ok=True)
-        
-        # Generate unique filename for the report
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_filename = f"incident_report_{timestamp}.pdf"
-        report_path = config.get_report_path(report_filename)
-        
-        # Create PDF document
-        doc = SimpleDocTemplate(report_path, pagesize=letter)
-        story = []
-        
-        # Add title
-        story.append(Paragraph("INCIDENT REPORT", self.title_style))
-        story.append(Spacer(1, 20))
-        
-        # Add report metadata
-        story.extend(self._create_metadata_section(staff_name, room_number, building_name))
-        
-        # Add violation summary
-        if violation_assessment.get("violation_found", False):
-            story.extend(self._create_violation_summary_section(violation_assessment))
-        
-        # Add detected objects
-        story.extend(self._create_objects_section(detected_objects))
-        
-        # Add policy rules
-        story.extend(self._create_policy_rules_section(policy_rules))
-        
-        # Add image evidence
-        image_story, temp_thumb_path = self._create_image_section(image_path)
-        story.extend(image_story)
-        
-        # Add user notes
-        if user_notes:
-            story.extend(self._create_notes_section(user_notes))
-        
-        # Add action items
-        story.extend(self._create_action_items_section(violation_assessment))
-        
-        # Build PDF
-        doc.build(story)
-        
-        # Clean up temp file after PDF is built
-        if temp_thumb_path and os.path.exists(temp_thumb_path):
+        try:
+            # Ensure reports directory exists
+            os.makedirs(config.REPORTS_DIR, exist_ok=True)
+            
+            # Generate unique filename for the report
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_filename = f"incident_report_{timestamp}.pdf"
+            report_path = config.get_report_path(report_filename)
+            
+            print(f"DEBUG: Creating report at {report_path}")
+            
+            # Create PDF document
+            doc = SimpleDocTemplate(report_path, pagesize=letter)
+            story = []
+            
+            # Add title
+            story.append(Paragraph("INCIDENT REPORT", self.title_style))
+            story.append(Spacer(1, 20))
+            
+            # Add report metadata
+            story.extend(self._create_metadata_section(staff_name, room_number, building_name))
+            
+            # Add violation summary
+            if violation_assessment.get("violation_found", False):
+                story.extend(self._create_violation_summary_section(violation_assessment))
+            
+            # Add detected objects
+            story.extend(self._create_objects_section(detected_objects))
+            
+            # Add policy rules
+            story.extend(self._create_policy_rules_section(policy_rules))
+            
+            # Add image evidence
+            image_story, temp_thumb_path = self._create_image_section(image_path)
+            story.extend(image_story)
+            
+            # Add user notes
+            if user_notes:
+                story.extend(self._create_notes_section(user_notes))
+            
+            # Add action items
+            story.extend(self._create_action_items_section(violation_assessment))
+            
+            # Build PDF
+            doc.build(story)
+            
+            # Clean up temp file after PDF is built
+            if temp_thumb_path and os.path.exists(temp_thumb_path):
+                try:
+                    os.remove(temp_thumb_path)
+                except Exception as e:
+                    print(f"Warning: Could not remove temp file {temp_thumb_path}: {e}")
+            
+            print(f"DEBUG: Report successfully created at {report_path}")
+            return report_path
+            
+        except Exception as e:
+            print(f"ERROR in generate_incident_report: {e}")
+            # Try to create a simple error report
             try:
-                os.remove(temp_thumb_path)
-            except Exception:
-                pass
-        
-        return report_path
+                error_report_path = self._create_error_report(str(e), timestamp)
+                return error_report_path
+            except Exception as error_e:
+                print(f"ERROR creating error report: {error_e}")
+                raise e
     
     def generate_incident_report_simple(self, incident_data: Dict[str, Any]) -> str:
         """
@@ -386,20 +400,35 @@ class ReportGenerator:
         story = []
         temp_thumb_path = None
         story.append(Paragraph("Image Evidence", self.section_style))
+        
         try:
+            # Ensure the image file exists
+            if not os.path.exists(image_path):
+                story.append(Paragraph(f"Image file not found: {image_path}", self.normal_style))
+                return story, temp_thumb_path
+            
             # Create thumbnail for the report
             thumbnail_data = create_thumbnail(image_path, max_size=(400, 300))
             if thumbnail_data:
                 import tempfile
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
-                    temp_file.write(thumbnail_data)
-                    temp_thumb_path = temp_file.name
-                img = RLImage(temp_thumb_path, width=4*inch, height=3*inch)
-                story.append(img)
+                # Create temp file in the system temp directory
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg', dir=tempfile.gettempdir())
+                temp_file.write(thumbnail_data)
+                temp_file.close()
+                temp_thumb_path = temp_file.name
+                
+                # Verify the temp file was created successfully
+                if os.path.exists(temp_thumb_path):
+                    img = RLImage(temp_thumb_path, width=4*inch, height=3*inch)
+                    story.append(img)
+                else:
+                    story.append(Paragraph("Failed to create image thumbnail for report.", self.normal_style))
             else:
                 story.append(Paragraph("Image could not be processed for report.", self.normal_style))
         except Exception as e:
+            print(f"Error in _create_image_section: {e}")
             story.append(Paragraph(f"Error processing image: {str(e)}", self.normal_style))
+        
         story.append(Spacer(1, 15))
         return story, temp_thumb_path
     
@@ -488,6 +517,42 @@ class ReportGenerator:
         
         doc.build(story)
         return report_path
+
+    def _create_error_report(self, error_message: str, timestamp: str) -> str:
+        """Create a simple error report when the main report generation fails."""
+        try:
+            # Ensure reports directory exists
+            os.makedirs(config.REPORTS_DIR, exist_ok=True)
+            
+            # Generate error report filename
+            report_filename = f"error_report_{timestamp}.pdf"
+            report_path = config.get_report_path(report_filename)
+            
+            # Create simple PDF document
+            doc = SimpleDocTemplate(report_path, pagesize=letter)
+            story = []
+            
+            # Add title
+            story.append(Paragraph("INCIDENT REPORT - ERROR", self.title_style))
+            story.append(Spacer(1, 20))
+            
+            # Add error information
+            story.append(Paragraph("Report Generation Error", self.section_style))
+            story.append(Paragraph(f"An error occurred while generating the incident report: {error_message}", self.normal_style))
+            story.append(Spacer(1, 15))
+            
+            # Add timestamp
+            story.append(Paragraph(f"Error occurred at: {format_timestamp(datetime.now())}", self.normal_style))
+            
+            # Build PDF
+            doc.build(story)
+            
+            return report_path
+            
+        except Exception as e:
+            print(f"ERROR in _create_error_report: {e}")
+            # If even the error report fails, return a default path
+            return os.path.join(config.REPORTS_DIR, f"error_report_{timestamp}.pdf")
 
 # Global generator instance
 generator = ReportGenerator() 
