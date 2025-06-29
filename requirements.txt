@@ -1,30 +1,30 @@
 # Core Framework
-fastapi>=0.100.0
-uvicorn>=0.20.0
-streamlit>=1.25.0
+fastapi==0.115.14
+uvicorn==0.35.0
+streamlit==1.46.1
 
 # AI/ML Libraries
-openai>=1.0.0
-transformers>=4.30.0
+transformers==4.53.0
 torch==2.7.1
 torchvision==0.22.1
-Pillow>=9.5.0
+Pillow==11.2.1
 
 # PDF Processing
-PyMuPDF>=1.23.0
-pdfplumber>=0.9.0
+PyMuPDF==1.26.1
+pdfplumber==0.11.7
 
-# Vector Database
-chromadb>=0.4.0
-sentence-transformers>=2.2.0
+# Vector Database - Use specific versions to avoid conflicts
+chromadb==0.4.22
+sentence-transformers==4.1.0
 
 # Utilities
-python-multipart>=0.0.6
-pydantic>=2.0.0
-python-dotenv>=1.0.0
-reportlab>=4.0.0
-jinja2>=3.1.0
+python-multipart==0.0.20
+pydantic==2.11.7
+python-dotenv==1.1.1
+reportlab==4.4.2
+jinja2==3.1.6
 
-# Optional: LangChain for enhanced LLM workflows
-langchain>=0.0.300
-langchain-openai>=0.0.1 
+# Additional dependencies
+numpy==2.3.1
+pandas==2.3.0
+requests==2.32.4 
